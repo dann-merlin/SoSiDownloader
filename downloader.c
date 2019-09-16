@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 #include <math.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -9,9 +12,9 @@
 
 
 static FILE* indexStream;
-static FILE* fileToReadFrom;
 static char* tmpFilesFolder = "/tmp/tmpFiles";
-
+static char* indexFile = "index.txt";
+static char* outputFileName = "output.ts";
 
 void mallocCheck(void* p) {
 	if(p == NULL) {
@@ -22,59 +25,35 @@ void mallocCheck(void* p) {
 
 
 
-char* insertNumberInString(char* string,int number){
+char* insertNumberInString(char** strings,int number){
 	int digitCount;
 	if(number == 0) {
 		digitCount = 1;
 	} else {
 		digitCount = floor(log10(number)) + 1;
 	}
-	char* buffer = calloc((strlen(string) + 1 + digitCount),sizeof(char));
+    int buffersize = (strlen(strings[0]) + strlen(strings[1]) + 1 + digitCount);
+	char* buffer = malloc(buffersize * sizeof(char));
 	mallocCheck(buffer);
-	char *c = string;
-	int charsToCopy = 0;
-	int found = 0;
-	int i = 0;
-	while(*c) {
-		if(*c == '*') {
-			charsToCopy = i;
-			found = 1;
-			break;
-		}
-		i++;
-		c++;
-	}
-	if(!found) {
-		fprintf(stderr,"No '*' found... in Adress\n");
-		exit(EXIT_FAILURE);
-	}
-	char* string1 = calloc(charsToCopy+1,sizeof(char));
-	mallocCheck(string1);
-	strncpy(string1,string,charsToCopy);
-	int sizeOfString2 = (strlen(string)+1) - (strlen(string1)+1);
-	char* string2 = calloc(sizeOfString2,sizeof(char));
-	mallocCheck(string2);
-	strncpy(string2,string+charsToCopy+1,sizeOfString2 -1);
-	sprintf(buffer,"%s%d%s",string1,number,string2);
-	free(string1);
-	free(string2);
+	sprintf(buffer,"%s%d%s",strings[1],number,strings[2]);
 	return buffer;
 }
 
-char* createDownloadCommand(char* string) {
+void createDownloadCommand(char* string, char** results) {
     char* beforeAdress = "curl \'";
-    char basenameCopy[strlen(string) + 1];
-    strcpy(basenameCopy,string);
-    char* basenameStr = basename(basenameCopy);
+    strcpy(results[1],string);
+    char* basenameStr = basename(results[1]);
     char* afterAdressTmp = "\' --output ";
     char afterAdress[strlen(afterAdressTmp) + strlen(basenameStr) + 1];
-	char* buffer = malloc((strlen(beforeAdress) + strlen(afterAdress) + strlen(string) + 1)*sizeof(char));
+    sprintf(afterAdress,"%s%s",afterAdressTmp,basenameStr);
+	char* buffer = malloc((strlen(beforeAdress) + strlen(string) + strlen(afterAdress) + 1)*sizeof(char));
 	mallocCheck(buffer);
 	sprintf(buffer,"%s%s%s",beforeAdress,string,afterAdress);
-	return buffer;
+	results[0] = buffer;
+    results[1] = basenameStr;
 }
 
-int checkIfDownloadWorked(char* basenameStr) {
+int checkIfDownloadFailed(char* basenameStr) {
     FILE* dlFile = fopen(basenameStr,"r");
     if(!dlFile) {
         perror("Opening File failed.");
@@ -94,133 +73,124 @@ int checkIfDownloadWorked(char* basenameStr) {
 }
 
 int download(char* webAddress) {
-	char* command = createDownloadCommand(webAddress);
+    char* commandAndBasename[2];
+    char tmp[strlen(webAddress) + 1];
+    commandAndBasename[1] = tmp;
+	createDownloadCommand(webAddress,commandAndBasename);
+    char* command = commandAndBasename[0];
 	system(command);
 	int exitStatus;
 	wait(&exitStatus);
 	free(command);
-    char basecpy[strlen(webAddress) + 1];
-    strcpy(basecpy,webAddress);
-    char* basenameStr = basename(basecpy);
-	int notworked = checkIfDownloadWorked(basenameStr);
-    if(!notworked) {
+    char* basenameStr = commandAndBasename[1];
+	int failed = checkIfDownloadFailed(basenameStr);
+    if(!failed) {
         fprintf(indexStream,"file\'%s\'\n",basenameStr);
     }
-    return notworked;
+    return failed;
 }
 
-char* handleNewline(char* buf) {
-	char* c = buf;
-	while(*c) {
-		if(*c == '\n') {
-			*c = '\0';
-		}
-		c++;
-	}
-	return buf;
+FILE* nextFile(FILE* indexFile) {
+    char* line = NULL;
+    size_t n = 0;
+    errno = 0;
+    if(getline(&line,&n,indexFile) == -1) {
+        if(errno != 0) {
+            perror("Line in indexFile couldn\'t be read\n");
+            exit(EXIT_FAILURE);
+        }
+        free(line);
+        return NULL;
+    }
+    if(line[strlen(line)-1] == '\n') line[strlen(line) - 1] = '\0';
+    FILE* next = fopen(line,"r");
+    if(!next) {
+        perror("next File couldn\'t be opened.\n");
+    }
+    free(line);
+    return NULL;
 }
 
-int leseLine(FILE* stream) {
-	char* readPath = calloc(200,sizeof(char));
-	mallocCheck(readPath);
-	char c;
-	int i = 0;
-	do {
-		c = getc(stream);
-		if((c != EOF)&&(c != '\n')) { *(readPath+i) = c; }
-		else { if(i == 0) {return EOF;}}
-		i++;
-	}while((c != EOF)&&(c != '\n'));
-
-	printf("Lese %s...\n",readPath);
-
-	fileToReadFrom = fopen(readPath,"r");
-	if(strlen(readPath) <= 2) {
-		free(readPath);
-		return -1;
-	}
-	free(readPath);
-	return 1;
-}
-
-void concatenate(char* filePath,char* cwd) {
-	FILE* listOfFiles = fopen(filePath,"r");
+void concatenate(char* cwd) {
+	FILE* listOfFiles = fopen(indexFile,"r");
 	if(listOfFiles == NULL) {
-		fprintf(stderr,"listOfFiles konnte nicht geoeffnet werden");
+		perror("indexFile couldn\'t be opened.\n");
 		exit(EXIT_FAILURE);
 	}
-	char* tmp = calloc((strlen(cwd)+strlen("/output.ts")+1),sizeof(char));
-	mallocCheck(tmp);
-	strcpy(tmp,cwd);
-	strcat(tmp,"/output.ts");
-	FILE* fileToWriteTo = fopen(tmp,"w");
-	fileToReadFrom = NULL;
-	int boolean = 1;
-	int err;
-	while(boolean) {
-		err = leseLine(listOfFiles);
-		if(err == EOF) { boolean = 0;} else {
-			int c;
-			do {
-				if(fileToReadFrom == NULL) {
-					fprintf(stderr,"Das sollte nicht passieren");
-					exit(EXIT_FAILURE);
-				}
-				c = getc(fileToReadFrom);
-				if(c != EOF) { fprintf(fileToWriteTo,"%c",c); }
-			}while(c != EOF);
-		}
-		if(err != EOF) {fclose(fileToReadFrom);}
-	}
+    int outputStrLen = strlen(cwd) + 1 + strlen(outputFileName) + 1;
+	char outputStr[outputStrLen];
+    sprintf(outputStr,"%s/%s",cwd,outputFileName);
+	FILE* outputFile = fopen(outputStr,"a");
+    if(outputFile == NULL) {
+        perror("outputFile couldn\'t be opened.\n");
+        exit(EXIT_FAILURE);
+    }
+	FILE* inputFile = NULL;
+	while((inputFile = nextFile(listOfFiles)) != NULL) {
+        int c = 0;
+        do {
+            c = fgetc(inputFile);
+            if(c == EOF) {
+                break;
+            }
+            if(fputc(c,outputFile) == EOF) {
+                fprintf(stderr,"Error writing to outputFile");
+                exit(EXIT_FAILURE);
+            }
+        } while(1337);
+        fclose(inputFile);
+    }
 	fclose(listOfFiles);
-	fclose(fileToWriteTo);
-	free(tmp);
+	fclose(outputFile);
 }
 
 void printUsage() {
-    fprintf(stderr,"Wrong Usage!\nUsage: ./download startIndex http://www.example.com/example*.ts\n");
+    fprintf(stderr,"Wrong Usage!\nUsage: ./download http://www.example.com/example*.ts [startIndex=1] \n");
+}
+
+void fillInBeforeAndAfterAsterisk(char** parts, char* string) {
+    char* c = string;
+    parts[0] = string;
+	int found = 0;
+	while(*c) {
+		if(*c == '*') {
+			*c = '\0';
+			parts[1] = ++c;
+            found = 1;
+			break;
+		}
+		c++;
+	}
+	if(!found) {
+		fprintf(stderr,"No '*' found... in Adress\n");
+		exit(EXIT_FAILURE);
+	}
 }
 
 int main(int argc, char** argv) {
-	if(argc < 3) {
+	if(argc > 3 || argc < 2) {
         printUsage();
 		exit(EXIT_FAILURE);
 	}
-	if(argc == 3) {
-		int lastFileReached = 0;
-		chdir(tmpFilesFolder);
-		char* str = "/index.txt";
-		char* buffer = calloc(strlen(cwd) + 1 + 1 + strlen(tmpFilesFolder),sizeof(char));
-        sprintf(buffer,"%s/%s",cwd,tmpFilesFolder)
-		indexStream = fopen(buffer,"a");
-		char* adresse = malloc((strlen(argv[2])+1) * sizeof(char));
-		mallocCheck(adresse);
-		strcpy(adresse,argv[2]);
-		int index = atoi(argv[1]);
-		while(!lastFileReached) {
-			char *indexedAddress = insertNumberInString(adresse,index);
-			printf("%s\n",indexedAddress);
-			lastFileReached = download(indexedAddress);
-			index++;
-			free(indexedAddress);
-		}
-		fclose(indexStream);
-
-		concatenate(buffer,cwd);
-		printf("Datei output.ts enthaelt Ergebnis\n");
-		free(cwd);
-		free(buffer);
-	} else {	
-		char* cwd = getcwd(NULL,0);
-		cwd = realloc(cwd,strlen(cwd) + 10);
-		mallocCheck(cwd);
-		strcat(cwd,"/tmpFiles");
-		chdir(cwd);
-		char* str = "/inhaltsverzeichnis.txt";
-		char* buffer = calloc(strlen(cwd) + 1 + strlen(str),sizeof(char));
-		strcpy(buffer,cwd);
-		strcat(buffer,str);
-		concatenate(buffer,cwd);
+	int lastFileReached = 0;
+    char *cwd = getcwd(NULL,0);
+    mkdir(tmpFilesFolder,0700);
+	chdir(tmpFilesFolder);
+	indexStream = fopen(indexFile,"a");
+	int index = 1;
+    if(argc == 3) { index = atoi(argv[2]);};
+    char* beforeAndAfterAsterisk[2];
+    fillInBeforeAndAfterAsterisk(beforeAndAfterAsterisk,argv[1]);
+	while(!lastFileReached) {
+		char *indexedAddress = insertNumberInString(beforeAndAfterAsterisk,index);
+		printf("%s\n",indexedAddress);
+		lastFileReached = download(indexedAddress);
+		index++;
+		free(indexedAddress);
 	}
+	fclose(indexStream);
+	concatenate(cwd);
+    free(cwd);
+	printf("Datei output.ts enthaelt Ergebnis\n");
 	exit(EXIT_SUCCESS);
 }
