@@ -5,9 +5,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <libgen.h>
+
 
 static FILE* indexStream;
 static FILE* fileToReadFrom;
+static char* tmpFilesFolder = "/tmp/tmpFiles";
+
 
 void mallocCheck(void* p) {
 	if(p == NULL) {
@@ -58,23 +62,22 @@ char* insertNumberInString(char* string,int number){
 }
 
 char* createDownloadCommand(char* string) {
-	int lengthOfAdress = strlen(string);
     char* beforeAdress = "curl \'";
     char basenameCopy[strlen(string) + 1];
     strcpy(basenameCopy,string);
-    char* basename = basename(basenameCopy);
-    char* afterAdressTmp = "\' --output "
-    char afterAdress[strlen(afterAdressTmp) + strlen(basename) + 1]
+    char* basenameStr = basename(basenameCopy);
+    char* afterAdressTmp = "\' --output ";
+    char afterAdress[strlen(afterAdressTmp) + strlen(basenameStr) + 1];
 	char* buffer = malloc((strlen(beforeAdress) + strlen(afterAdress) + strlen(string) + 1)*sizeof(char));
 	mallocCheck(buffer);
 	sprintf(buffer,"%s%s%s",beforeAdress,string,afterAdress);
 	return buffer;
 }
 
-int checkIfDownloadWorked(char* basename) {
-    FILE* dlFile = fopen(basename,"r");
+int checkIfDownloadWorked(char* basenameStr) {
+    FILE* dlFile = fopen(basenameStr,"r");
     if(!dlFile) {
-        perror("Opening File %s failed.",basename);
+        perror("Opening File failed.");
         return -1;
     }
     char* compare = "<HTML>";
@@ -98,10 +101,10 @@ int download(char* webAddress) {
 	free(command);
     char basecpy[strlen(webAddress) + 1];
     strcpy(basecpy,webAddress);
-    char* basename = basename(basecpy);
-	int notworked = checkIfDownloadWorked(basename);
+    char* basenameStr = basename(basecpy);
+	int notworked = checkIfDownloadWorked(basenameStr);
     if(!notworked) {
-        fprintf(indexStream,"%s\n",basename);
+        fprintf(indexStream,"file\'%s\'\n",basenameStr);
     }
     return notworked;
 }
@@ -185,16 +188,10 @@ int main(int argc, char** argv) {
 	}
 	if(argc == 3) {
 		int lastFileReached = 0;
-		char* cwd = getcwd(NULL,0); //free this buffer
-        char* tmpFilesFolder = "/tmpFiles";
-		cwd = realloc(cwd,strlen(cwd) + strlen(tmpFilesFolder)+ 1);
-		mallocCheck(cwd);
-		strcat(cwd,tmpFilesFolder);
-		chdir(cwd);
+		chdir(tmpFilesFolder);
 		char* str = "/index.txt";
-		char* buffer = calloc(strlen(cwd) + 1 + strlen(str),sizeof(char));
-		strcpy(buffer,cwd);
-		strcat(buffer,str);
+		char* buffer = calloc(strlen(cwd) + 1 + 1 + strlen(tmpFilesFolder),sizeof(char));
+        sprintf(buffer,"%s/%s",cwd,tmpFilesFolder)
 		indexStream = fopen(buffer,"a");
 		char* adresse = malloc((strlen(argv[2])+1) * sizeof(char));
 		mallocCheck(adresse);

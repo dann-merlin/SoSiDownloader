@@ -1,11 +1,12 @@
-MEINEFLAGS = -std=c11 -Wpedantic -g -D_XOPEN_SOURCE=700 -Wall -Werror
+FLAGS = -std=c11 -Wpedantic -g -D_XOPEN_SOURCE=700 -Wall -Werror
+CC = gcc
 
 .PHONY: all clean
 all: download
 
 clean:
-	rm -f download
+	rm -f download downloader.o
 download: downloader.o
-	gcc $(MEINEFLAGS) -o download downloader.o -lm
+	$(CC) $(FLAGS) -o download downloader.o -lm
 downloader.o: downloader.c
-	gcc $(MEINEFLAGS) -c downloader.c -lm
+	$(CC) $(FLAGS) -c downloader.c -lm
