@@ -12,7 +12,7 @@
 
 
 static FILE* indexStream;
-static char* tmpFilesFolder = "/tmp/tmpFiles";
+static char* tmpFilesFolder = "/tmp/SoSiDownloader";
 static char* indexFile = "index.txt";
 static char* outputFileName = "output.ts";
 
@@ -33,9 +33,11 @@ char* insertNumberInString(char** strings,int number){
 		digitCount = floor(log10(number)) + 1;
 	}
     int buffersize = (strlen(strings[0]) + strlen(strings[1]) + 1 + digitCount);
+    printf("%s\n",strings[0]);
+    printf("%s\n",strings[1]);
 	char* buffer = malloc(buffersize * sizeof(char));
 	mallocCheck(buffer);
-	sprintf(buffer,"%s%d%s",strings[1],number,strings[2]);
+	sprintf(buffer,"%s%d%s",strings[0],number,strings[1]);
 	return buffer;
 }
 
@@ -85,7 +87,7 @@ int download(char* webAddress) {
     char* basenameStr = commandAndBasename[1];
 	int failed = checkIfDownloadFailed(basenameStr);
     if(!failed) {
-        fprintf(indexStream,"file\'%s\'\n",basenameStr);
+        fprintf(indexStream,"%s\n",basenameStr);
     }
     return failed;
 }
@@ -102,16 +104,18 @@ FILE* nextFile(FILE* indexFile) {
         free(line);
         return NULL;
     }
+    printf("line %s wurde gelesen", line);
     if(line[strlen(line)-1] == '\n') line[strlen(line) - 1] = '\0';
     FILE* next = fopen(line,"r");
     if(!next) {
         perror("next File couldn\'t be opened.\n");
     }
     free(line);
-    return NULL;
+    return next;
 }
 
 void concatenate(char* cwd) {
+    printf("hi");
 	FILE* listOfFiles = fopen(indexFile,"r");
 	if(listOfFiles == NULL) {
 		perror("indexFile couldn\'t be opened.\n");
@@ -126,8 +130,11 @@ void concatenate(char* cwd) {
         exit(EXIT_FAILURE);
     }
 	FILE* inputFile = NULL;
+    int i = 0;
+    printf("nochda");
 	while((inputFile = nextFile(listOfFiles)) != NULL) {
         int c = 0;
+        printf("reading %d\n",i++);
         do {
             c = fgetc(inputFile);
             if(c == EOF) {
@@ -140,6 +147,7 @@ void concatenate(char* cwd) {
         } while(1337);
         fclose(inputFile);
     }
+    printf("fertig\n");
 	fclose(listOfFiles);
 	fclose(outputFile);
 }
@@ -172,6 +180,7 @@ int main(int argc, char** argv) {
         printUsage();
 		exit(EXIT_FAILURE);
 	}
+    //TODO rm -rf /tmp/SoSiDownloader && check if output.ts exists
 	int lastFileReached = 0;
     char *cwd = getcwd(NULL,0);
     mkdir(tmpFilesFolder,0700);
