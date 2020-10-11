@@ -1,4 +1,7 @@
 # SoSiDownloader
+
+I have to reimplement this in shell script. This repo is just silly.
+
 Downloader to download videos from the arteConcert website. Works with every online videoplayer, that downloads numbered .ts files. 
 
 Example:
